@@ -125,17 +125,15 @@ def get_candidate_points(largest_blob_mask, mesh_mask, sigma=3):
 
     print(f'Running get_candidate_points')
 
-    binary_volume = largest_blob_mask.astype(int)
-    #np.save('binary_volume.npy', binary_volume)
-
     # Compute the Euclidean distance map (on inverted, so that the distance is computed from cavity to skull).
-    distance_map = distance_transform_edt(binary_volume == 0)
+    distance_map = distance_transform_edt(largest_blob_mask == 0)
     #np.save('distance_map.npy', distance_map)
 
     # Apply Gaussian filter to the distance map
-    smoothed_distance_map = gaussian_filter(distance_map, sigma=sigma)
-    
-    masked_distance_map = smoothed_distance_map * mesh_mask
+    # Reuse the float64 distance buffer; the unfiltered map is no longer needed.
+    gaussian_filter(distance_map, sigma=sigma, output=distance_map)
+    distance_map *= mesh_mask
+    masked_distance_map = distance_map
     #np.save('masked_distance_map.npy', masked_distance_map)
 
     local_max = peak_local_max(masked_distance_map, min_distance=50, threshold_abs=0.1, exclude_border=True)

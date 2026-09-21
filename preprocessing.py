@@ -29,7 +29,7 @@ def threshold_volume(data: np.ndarray) -> tuple[np.ndarray, float]:
     Apply Otsu's thresholding to a 3D volume.
     """
     print(f'Running threshold_volume')
-    data_flat = data.flatten()
+    data_flat = data.ravel()  # A view for C-contiguous inputs; same voxel order.
     threshold_value = threshold_otsu(data_flat)
     binary_volume = data > threshold_value # Apply thresholding
 
@@ -122,6 +122,7 @@ def preprocessing(nifti_path: str) -> tuple[np.ndarray, float]:
 
     data = load_nifti(nifti_path)
     binary_volume, threshold_value = threshold_volume(data)
+    del data  # Labeling needs only the binary volume.
     largest_blob_mask = extract_largest_blob(binary_volume)
 
     return largest_blob_mask, threshold_value

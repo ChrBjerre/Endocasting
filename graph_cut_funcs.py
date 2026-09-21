@@ -146,7 +146,8 @@ def create_sample_grid_vec_new(mesh, steps, step_size, *, frac=1.0):
     # -------------------------------------------------
     #  4. Broadcast: (steps+1, n_vertices, 3)
     # -------------------------------------------------
-    samples = positions[None, :, :] + (offsets[:, None, None] * step_size) * normals[None, :, :]
+    samples = (offsets[:, None, None] * step_size) * normals[None, :, :]
+    samples += positions[None, :, :]  # Reuse the offset buffer for final coordinates.
 
     return samples
 
@@ -188,8 +189,8 @@ def sample_in_nifti(samples, interpolator, show_plot: bool = False) -> np.ndarra
     N, M, _ = samples.shape  
     # Each arr[i,j] is a length-3 array of coordinates
 
-    # Flatten to 1D list of all 3D points, then stack into shape (N*M, 3)
-    arr_flat = np.stack(samples.ravel(), axis=0)  
+    # Keep (x, y, z) triples in C order, without stacking individual scalars.
+    arr_flat = samples.reshape(-1, 3)
 
     # 4) Interpolate at those coordinates
     values_1d = interpolator(arr_flat)  # shape = (N*M,)
@@ -222,7 +223,6 @@ def graph_cut_segmentation(values_2d, neighbor_list, delta_x: int=15, show_plot:
     graph = maxflow.Graph[float]()
     node_ids = graph.add_grid_nodes((height - 1, width))
     height, width = node_ids.shape
-    gradient_image = np.zeros((height - 1, width))
 
     max_val = values_2d.max()
 
@@ -231,8 +231,6 @@ def graph_cut_segmentation(values_2d, neighbor_list, delta_x: int=15, show_plot:
         for x in range(width):
             node_id = node_ids[y, x]
             gradient = values_2d[y, x] - values_2d[y + 1, x]
-
-            gradient_image[y, x] = gradient
 
             # Add terminal and sink edges for current node
             foreground_cost = np.abs(gradient)
@@ -557,6 +555,8 @@ def iterative_mesh_every_iter(center_point: np.ndarray, min_dist: float, out_pat
     coordinates, indices = get_mask_coordinates(new_mask, arr)
 
     shift_mesh_vertices(mesh, arr, coordinates, indices)
+    # Sampling buffers are no longer needed by smoothing or export.
+    del arr, values_2d, cut_mask, new_mask, coordinates, indices
 
    # Export mesh as .ply
     create_mesh_ply(mesh, 0, 0, out_path)
@@ -596,6 +596,8 @@ def iterative_mesh_every_iter(center_point: np.ndarray, min_dist: float, out_pat
             coordinates, indices = get_mask_coordinates(new_mask, arr)
 
             shift_mesh_vertices(mesh, arr, coordinates, indices)
+            # Sampling buffers are no longer needed by smoothing or export.
+            del arr, values_2d, cut_mask, new_mask, coordinates, indices
 
             hmesh.taubin_smooth(mesh, iter=taubin_iter)   
                      
@@ -656,6 +658,8 @@ def iterative_mesh(center_point: np.ndarray, min_dist: float, out_path: str, nif
     coordinates, indices = get_mask_coordinates(new_mask, arr)
 
     shift_mesh_vertices(mesh, arr, coordinates, indices)
+    # Sampling buffers are no longer needed by smoothing or export.
+    del arr, values_2d, cut_mask, new_mask, coordinates, indices
     # Export mesh as .ply
     create_mesh_ply(mesh, 0, 0, out_path)
     # Create binary mask
@@ -693,6 +697,8 @@ def iterative_mesh(center_point: np.ndarray, min_dist: float, out_path: str, nif
             coordinates, indices = get_mask_coordinates(new_mask, arr)
 
             shift_mesh_vertices(mesh, arr, coordinates, indices)
+            # Sampling buffers are no longer needed by smoothing or export.
+            del arr, values_2d, cut_mask, new_mask, coordinates, indices
             hmesh.taubin_smooth(mesh, iter=taubin_iter)
             
         if i != len(num_iters)-1:
