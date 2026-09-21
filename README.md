@@ -37,6 +37,9 @@ out_path = "output_directory/"        # Output path for meshes
 python script.py
 ```
 
+PCA resampling uses bounded chunks (262,144 output voxels by default). Set
+`chunk_size` in the `PCA_resample_GUI` call to adjust that memory budget.
+
 ---
 
 ## Files included

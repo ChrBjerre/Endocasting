@@ -21,7 +21,7 @@ def rotated_points(points, points_mu, U_matrix):
         return (points - points_mu) @ U_matrix
 
 
-def PCA_resample_GUI(nifti_path: str):
+def PCA_resample_GUI(nifti_path: str, *, chunk_size=262_144):
     """
     Loads NifTi path, extracts the largest blob, and computes PCA.
     Has GUI that enables the user to adjust the PCA axes to align 
@@ -223,19 +223,24 @@ def PCA_resample_GUI(nifti_path: str):
     root.mainloop()
 
     # Resample the NifTi file using the final U
-    resample_nifti(nifti_path, points, final_U)
+    resample_nifti(nifti_path, points, final_U, chunk_size=chunk_size)
 
     # Return the final U
     return final_U
 
 
 
-def resample_nifti(nifti_path: str, points, final_U: np.ndarray):
+def resample_nifti(nifti_path: str, points, final_U: np.ndarray, *, chunk_size=262_144):
     """
     Resamples the NifTi file using the final U matrix.
     Stores a new file with the resampled data in the same directory.
+    chunk_size bounds the number of output voxels interpolated at once.
+    Only the input image and final float32 output are volume-sized; coordinate
+    and interpolation buffers are released after each chunk.
     """
     print(f'Running resample_nifti')
+    if not isinstance(chunk_size, (int, np.integer)) or isinstance(chunk_size, bool) or chunk_size <= 0:
+        raise ValueError("chunk_size must be a positive integer")
 
     # -----------------------------------------------------------------------
     # TWEAK #2: Convert 'points' from voxel indices to mm (just like above)
@@ -292,23 +297,29 @@ def resample_nifti(nifti_path: str, points, final_U: np.ndarray):
     vX = np.arange(xMin, xMax+spacing, spacing) 
     vY = np.arange(yMin, yMax+spacing, spacing) 
     vZ = np.arange(zMin, zMax+spacing, spacing) 
-    qX,qY,qZ = np.meshgrid(vX,vY,vZ, indexing='ij')
-    ptsQ = np.transpose(np.array([qX.ravel(),qY.ravel(),qZ.ravel()]))
+    output_shape = (len(vX), len(vY), len(vZ))
+    volQ_float32 = np.empty(output_shape, dtype=np.float32)
+    output_flat = volQ_float32.reshape(-1)  # View, not another volume.
+    yz_size = len(vY) * len(vZ)
 
-    # Inverse rotation and then translate (add mean)
-    ptsQ_t = (ptsQ @ final_U.T) + points_mu
-    
-    del ptsQ, qY, qZ
+    for start in range(0, output_flat.size, chunk_size):
+        stop = min(start + chunk_size, output_flat.size)
+        indices = np.arange(start, stop)
+        # Same ordering as meshgrid(indexing='ij') followed by C-order ravel.
+        # The transposed allocation also retains the original coordinate layout.
+        ptsQ = np.empty((3, stop - start), dtype=np.float64).T
+        ptsQ[:, 0] = vX[indices // yz_size]
+        ptsQ[:, 1] = vY[(indices // len(vZ)) % len(vY)]
+        ptsQ[:, 2] = vZ[indices % len(vZ)]
+        ptsQ_t = (ptsQ @ final_U.T) + points_mu
+
+        # Preserve the original float16 rounding before storage as float32.
+        output_flat[start:stop] = F_moving(ptsQ_t).astype(np.float16)
+        del indices, ptsQ, ptsQ_t
+
+    # Release the source image (owned by the interpolator) before NIfTI export.
+    del F_moving, output_flat
     gc.collect()
-
-    # Evaluate transformed grid points in the moving image
-    fVal = F_moving(ptsQ_t)
-
-    del F_moving, ptsQ_t
-    gc.collect()
-
-    # Reshape to voxel grid
-    volQ = np.reshape(fVal,newshape=qX.shape).astype('float16')
 
     # Prep minimal nifti (.nii) header
     origin = np.array([xMin,yMin,zMin])
@@ -320,11 +331,6 @@ def resample_nifti(nifti_path: str, points, final_U: np.ndarray):
     affineNew[3,3] = 1.0
 
     outPath = nifti_path.replace('.nii', '_PCA_resampled.nii')
-    volQ_float32 = volQ.astype(np.float32)
-
-    del volQ, qX
-    gc.collect()
-
     niiPCA = nib.Nifti1Image(volQ_float32, affineNew)
     nib.save(niiPCA, outPath)
 
