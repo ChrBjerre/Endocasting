@@ -48,7 +48,15 @@ PCA resampling uses bounded chunks (262,144 output voxels by default). Set
 * `preprocessing.py`: Initial data preparation functions.
 * `PCA_resample.py`: PCA-based resampling methods.
 * `find_center_point.py`: Functions for determining suitable seed points.
+* `cavity_ranking.py`: Boundary escape-clearance and directional-enclosure ranking.
+* `center_point_debug.py`: Orthogonal slices, candidate scores, and a synthetic debug mode.
 * `graph_cut_funcs.py`: Iterative mesh extraction and refinement functions.
+
+Center candidates now rank by cavity enclosure rather than convex-hull membership.
+The highest-ranked candidate appears first in the existing selection GUI. See
+[center-point detection](CENTER_POINT_DETECTION.md) for batch use, parameters,
+coarse-grid limitations and validation. Try the headless synthetic example with
+`python center_point_debug.py --synthetic --no-show`.
 
 ---
 * `Visualization/`: Contains various scripts used for visualizations in our thesis.

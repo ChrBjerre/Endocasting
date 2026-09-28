@@ -1,15 +1,11 @@
 from preprocessing import preprocessing
+from cavity_ranking import rank_cavity_candidates
 import numpy as np
-import pyvista as pv
-from scipy.spatial import Delaunay
 from scipy.ndimage import distance_transform_edt, gaussian_filter
 from skimage.feature import peak_local_max
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-import trimesh
-import vtk
-from vtk.util import numpy_support
 import nibabel as nib
 import os
 
@@ -22,6 +18,8 @@ import os
 
 
 def get_alpha_shape(nifti_path_pca, subsampling_factor = None, alpha_value = None):
+
+    import pyvista as pv
 
     print(f'Running get_alpha_shape')
 
@@ -53,6 +51,8 @@ def get_alpha_shape(nifti_path_pca, subsampling_factor = None, alpha_value = Non
 
 
 def get_voxels_in_mesh(nifti_path_pca, obj_path="./temp_object.obj"):
+    import vtk
+    from vtk.util import numpy_support
 
     nifti_img = nib.load(nifti_path_pca)
     nifti_affine = nifti_img.affine
@@ -121,7 +121,7 @@ def get_voxels_in_mesh(nifti_path_pca, obj_path="./temp_object.obj"):
 
 
 
-def get_candidate_points(largest_blob_mask, mesh_mask, sigma=3):
+def _legacy_candidate_points(largest_blob_mask, mesh_mask, sigma=3):
 
     print(f'Running get_candidate_points')
 
@@ -144,20 +144,52 @@ def get_candidate_points(largest_blob_mask, mesh_mask, sigma=3):
     return local_max, local_max_values
 
 
-def find_center_points(nifti_path_pca, subsampling_factor = None, alpha_value = None, sigma = 3):
+def get_candidate_points(largest_blob_mask, mesh_mask=None, sigma=3, *,
+                         method="bottleneck", return_scores=False, **ranking_options):
+    """Return ranked original-array indices and EDT radii in voxel units.
 
-    print(f'Running find_center_point')
+    The old hull mask is used only with method="legacy". A hull is not evidence
+    of enclosure. With return_scores=True, append a CavityCandidates record.
+    """
+    if method == "legacy":
+        if mesh_mask is None or return_scores or ranking_options:
+            raise ValueError("Legacy mode requires mesh_mask and does not provide ranking scores")
+        return _legacy_candidate_points(largest_blob_mask, mesh_mask, sigma)
+    if method != "bottleneck":
+        raise ValueError("method must be 'bottleneck' or 'legacy'")
+    result = rank_cavity_candidates(largest_blob_mask, sigma=sigma, **ranking_options)
+    values = (result.points, result.peak)
+    return (*values, result) if return_scores else values
 
-    points_new, largest_blob_mask = get_alpha_shape(nifti_path_pca, subsampling_factor, alpha_value)
 
-    mesh_mask = get_voxels_in_mesh(nifti_path_pca)
+def find_center_points(nifti_path_pca, subsampling_factor=None, alpha_value=None,
+                       sigma=3, *, method="bottleneck", return_scores=False,
+                       **ranking_options):
+    """Keep the three-value pipeline interface, with the recommended seed first.
 
-    #np.save('mesh_mask.npy', mesh_mask)
-
-    local_max, local_max_values = get_candidate_points(largest_blob_mask, mesh_mask, sigma)
-
-    return local_max, local_max_values, points_new
-
+    The returned distance is the unsmoothed original EDT at that seed, never
+    the ranking score. This keeps downstream sphere radii in voxel units.
+    method="legacy" retains the original hull-based behaviour for comparison.
+    """
+    if method == "legacy":
+        if return_scores or ranking_options:
+            raise ValueError("Legacy mode does not provide ranking scores/options")
+        points, bone = get_alpha_shape(nifti_path_pca, subsampling_factor, alpha_value)
+        candidates, values = _legacy_candidate_points(bone, get_voxels_in_mesh(nifti_path_pca), sigma)
+        return candidates, values, points
+    if method != "bottleneck":
+        raise ValueError("method must be 'bottleneck' or 'legacy'")
+    bone, _ = preprocessing(nifti_path_pca)
+    result = rank_cavity_candidates(bone, sigma=sigma, **ranking_options)
+    # A bounded point cloud for the existing GUI only; it is not a hull or mask.
+    step = max(1, int(np.ceil(max(bone.shape) / 128)))
+    points = np.argwhere(bone[::step, ::step, ::step]) * step
+    factor = subsampling_factor if subsampling_factor is not None else max(1, int(np.ceil(len(points) / 5000)))
+    if not isinstance(factor, (int, np.integer)) or factor < 1:
+        raise ValueError("subsampling_factor must be a positive integer")
+    points = points[::factor].astype(np.float32)
+    values = (result.points, result.peak, points)
+    return (*values, result) if return_scores else values
 
 
 
@@ -170,6 +202,9 @@ def select_local_max(points, local_max, local_max_values):
     The user can cycle through local_max points using "Previous" or "Next"
     and choose the final selection with "Done". The chosen point is returned.
     """
+
+    if len(local_max) == 0:
+        raise ValueError("No candidate points to select")
 
     # --- Create the main Tkinter window ---
     root = tk.Tk()
