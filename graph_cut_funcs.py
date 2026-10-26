@@ -507,7 +507,28 @@ def get_faces(m):
 
 
 
-def iterative_mesh_every_iter(center_point: np.ndarray, min_dist: float, out_path: str, nifti_path:str, num_iters = [5, 3, 3], step_sizes = [1, 0.5, 0.5]) -> None:
+def remesh_uniform(mesh):
+    """Regularize edge lengths while projecting back onto the current surface."""
+    import pymeshlab
+
+    mesh.cleanup()  # Face indices must address a compact vertex array.
+    target_length = hmesh.average_edge_length(mesh)
+    meshes = pymeshlab.MeshSet()
+    meshes.add_mesh(pymeshlab.Mesh(mesh.positions(), get_faces(mesh)))
+    meshes.meshing_isotropic_explicit_remeshing(
+        iterations=3,
+        targetlen=pymeshlab.PureValue(target_length),
+        checksurfdist=True,
+        maxsurfdist=pymeshlab.PureValue(0.1 * target_length),
+        reprojectflag=True,
+    )
+    result = meshes.current_mesh()
+    remeshed = hmesh.Manifold.from_triangles(result.vertex_matrix(), result.face_matrix())
+    remeshed.cleanup()  # Sampling and neighbour lists rely on contiguous IDs.
+    return remeshed
+
+
+def iterative_mesh_every_iter(center_point: np.ndarray, min_dist: float, out_path: str, nifti_path:str, num_iters = [5, 3, 3], step_sizes = [1, 0.5, 0.5], remesh=True) -> None:
     """    Create an iterative mesh from a center point and a minimum distance, sampling from a NIfTI file.
     Parameters
     ----------
@@ -523,6 +544,8 @@ def iterative_mesh_every_iter(center_point: np.ndarray, min_dist: float, out_pat
         A list of integers specifying the number of iterations for each mesh refinement step. Default is [5, 3, 3].
     step_sizes : list, optional
         A list of floats specifying the step sizes for each iteration. Default is [1, 0.5, 0.5].
+    remesh : bool, optional
+        Remesh once after ceil(j / 2) iterations of each j-iteration stage.
     Returns
     -------
     Mesh and binary mask files are saved to the specified output path.
@@ -599,7 +622,9 @@ def iterative_mesh_every_iter(center_point: np.ndarray, min_dist: float, out_pat
             # Sampling buffers are no longer needed by smoothing or export.
             del arr, values_2d, cut_mask, new_mask, coordinates, indices
 
-            hmesh.taubin_smooth(mesh, iter=taubin_iter)   
+            hmesh.taubin_smooth(mesh, iter=taubin_iter)
+            if remesh and k + 1 == (j + 1) // 2:
+                mesh = remesh_uniform(mesh)
                      
             create_mesh_ply(mesh, i, k+1, out_path)
             create_binary_nifti_mask(i, k+1, out_path, nifti_path)
@@ -610,7 +635,7 @@ def iterative_mesh_every_iter(center_point: np.ndarray, min_dist: float, out_pat
 
     return None
 
-def iterative_mesh(center_point: np.ndarray, min_dist: float, out_path: str, nifti_path:str, num_iters = [5, 3, 3], step_sizes = [1, 0.5, 0.5]) -> None:
+def iterative_mesh(center_point: np.ndarray, min_dist: float, out_path: str, nifti_path:str, num_iters = [5, 3, 3], step_sizes = [1, 0.5, 0.5], remesh=True) -> None:
     """    Create an iterative mesh from a center point and a minimum distance, sampling from a NIfTI file.
     Parameters
     ----------
@@ -626,6 +651,8 @@ def iterative_mesh(center_point: np.ndarray, min_dist: float, out_path: str, nif
         A list of integers specifying the number of iterations for each mesh refinement step. Default is [5, 3, 3].
     step_sizes : list, optional
         A list of floats specifying the step sizes for each iteration. Default is [1, 0.5, 0.5].
+    remesh : bool, optional
+        Remesh once after ceil(j / 2) iterations of each j-iteration stage.
     Returns
     -------
     Mesh and binary mask files are saved to the specified output path.
@@ -700,6 +727,8 @@ def iterative_mesh(center_point: np.ndarray, min_dist: float, out_path: str, nif
             # Sampling buffers are no longer needed by smoothing or export.
             del arr, values_2d, cut_mask, new_mask, coordinates, indices
             hmesh.taubin_smooth(mesh, iter=taubin_iter)
+            if remesh and k + 1 == (j + 1) // 2:
+                mesh = remesh_uniform(mesh)
             
         if i != len(num_iters)-1:
             hmesh.loop_subdivide(mesh)

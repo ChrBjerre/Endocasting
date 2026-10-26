@@ -1,3 +1,5 @@
 __pycache__/
+/results/
+.remesh-test-deps/
 benchmark-results*.json
 center-debug*/

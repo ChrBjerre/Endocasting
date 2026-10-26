@@ -9,26 +9,36 @@ from graph_cut_funcs import *
 
 
 ########### FILL OUT ###########
-path = ".nii"  # Replace with your actual NifTi file path
-out_path = ".../"  # Replace with your desired output path
+path = "C:\\Users\\chris\\Mit drev\\DTU\\0. Afsluttede kurser\\Bachelorprojekt\\DOG-ROOTS\\Canislupus_CZM_712_downsampled_x025.nii"  # Replace with your actual NifTi file path
+out_path = "./results/"  # Replace with your desired output path
 num_iters = [10,5,3,2]
 step_sizes = [1,1,0.5,0.5]
+use_pca_resampling = False  # False: automatic center selection in the original volume.
+remesh = True  # Once per stage: after iterations 5, 3, 2, 1 for the setup above.
 ################################
 
+if remesh:
+    import pymeshlab  # Check the added dependency before processing the scan.
 
 
-# Load NifTi file and resample in PCA-space
-_ = PCA_resample_GUI(path)
 
-pca_path = path.replace('.nii', '_PCA_resampled.nii')
+# Use the same volume for center detection, mesh sampling and mask export.
+volume_path = path
+if use_pca_resampling:
+    _ = PCA_resample_GUI(path)
+    volume_path = path.replace('.nii', '_PCA_resampled.nii')
 
-local_max, local_max_values, points = find_center_points(pca_path)
+local_max, local_max_values, points = find_center_points(volume_path)
 print(f'Number of local maxima: {len(local_max)}')
 
 
-center_point, min_dist = select_local_max(points, local_max, local_max_values)
+if use_pca_resampling:
+    center_point, min_dist = select_local_max(points, local_max, local_max_values)
+else:
+    # The bottleneck/enclosure method returns the best candidate first.
+    center_point, min_dist = local_max[0], local_max_values[0]
 print(f'Selected center point: {center_point}')
 print(f'Minimum distance value at selected center point: {min_dist}')
 
-#iterative_mesh(center_point, min_dist, out_path, pca_path) #outputs the first iterative mesh and last
-iterative_mesh_every_iter(center_point, min_dist, out_path, pca_path,num_iters=num_iters,step_sizes=step_sizes) #outputs all iterative meshes
+#iterative_mesh(center_point, min_dist, out_path, volume_path) #outputs the first iterative mesh and last
+iterative_mesh_every_iter(center_point, min_dist, out_path, volume_path,num_iters=num_iters,step_sizes=step_sizes,remesh=remesh) #outputs all iterative meshes

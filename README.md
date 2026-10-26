@@ -14,8 +14,9 @@ These scripts process a NIfTI file (`.nii`) of a micro-CT scan to create a mesh-
 
 The main script, `script.py`, utilizes:
 
-* PCA-based resampling of volume data.
-* Identification of local maxima to determine a suitable center point.
+* Optional PCA-based resampling of volume data.
+* Automatic selection of the highest-ranked center candidate, with manual
+  selection available in PCA mode.
 * Iterative graph-cut methods to refine and generate meshes representing the endocranial cavity.
 
 ---
@@ -37,8 +38,31 @@ out_path = "output_directory/"        # Output path for meshes
 python script.py
 ```
 
+Set `use_pca_resampling` in `script.py`:
+
+* `False` (default): skip both menus, automatically select the highest-ranked candidate
+  from the bottleneck/enclosure method, and run endocasting on the original input.
+  Coordinates and distances remain in original voxel units; anisotropic inputs
+  are not made isotropic in this mode.
+* `True`: use the PCA-axis GUI, resample, then manually select the center
+  using the existing menu. Endocasting uses the PCA-resampled volume.
+
 PCA resampling uses bounded chunks (262,144 output voxels by default). Set
 `chunk_size` in the `PCA_resample_GUI` call to adjust that memory budget.
+
+Mesh expansion remeshes by default (`remesh = True`) once halfway through each stage, rounding up:
+`[10, 5, 3, 2]` remeshes after `[5, 3, 2, 1]` completed iterations. Set
+`remesh = False` in `script.py` to disable it. Both mesh drivers support this flag.
+The step runs after smoothing and before export/continued expansion; the existing
+between-stage subdivision remains. It uses three passes of
+[PyMeshLab isotropic remeshing](https://pymeshlab.readthedocs.io/en/latest/filter_list.html#meshing-isotropic-explicit-remeshing),
+targeting the current average edge length with surface reprojection and a local
+surface-deviation limit of 10% of that edge length. Vertex counts can change;
+surface geometry is only approximately preserved. Install the added dependency
+in the environment used to run the pipeline with `python -m pip install pymeshlab`.
+Run the focused checks with `python -m unittest discover -s tests -p test_remeshing.py -v`.
+The schedule check uses pipeline stubs; the geometry check requires both PyGEL
+and PyMeshLab and reports a skip if either is unavailable.
 
 ---
 
