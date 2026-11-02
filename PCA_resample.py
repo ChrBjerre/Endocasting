@@ -37,7 +37,8 @@ def PCA_resample_GUI(nifti_path: str, *, chunk_size=262_144):
     gc.collect()
 
     # -----------------------------------------------------------------------
-    # TWEAK #1: Convert 'points' from voxel indices to millimeter coordinates
+    # Local millimeters along voxel axes, relative to voxel (0, 0, 0).
+    # Resampling uses this same frame, independent of the NIfTI world affine.
     # -----------------------------------------------------------------------
     nii_temp = nib.load(nifti_path)
     imgSpacing = nii_temp.header['pixdim'][1:4]
@@ -237,16 +238,17 @@ def resample_nifti(nifti_path: str, points, final_U: np.ndarray, *, chunk_size=2
     chunk_size bounds the number of output voxels interpolated at once.
     Only the input image and final float32 output are volume-sized; coordinate
     and interpolation buffers are released after each chunk.
+    points and final_U use spacing-scaled voxel axes, not NIfTI world axes.
+    The exported affine describes the new PCA frame.
     """
     print(f'Running resample_nifti')
     if not isinstance(chunk_size, (int, np.integer)) or isinstance(chunk_size, bool) or chunk_size <= 0:
         raise ValueError("chunk_size must be a positive integer")
 
     # -----------------------------------------------------------------------
-    # TWEAK #2: Convert 'points' from voxel indices to mm (just like above)
+    # Load intensities; points are already in local voxel-axis millimeters.
     # -----------------------------------------------------------------------
     nii_mov = nib.load(nifti_path)
-    affine = nii_mov.affine
     imgDim = nii_mov.header['dim'][1:4]
     imgSpacing = nii_mov.header['pixdim'][1:4]
     image_array = np.asarray(nii_mov.dataobj, dtype=np.float16)
@@ -265,12 +267,15 @@ def resample_nifti(nifti_path: str, points, final_U: np.ndarray, *, chunk_size=2
 
     # Choose inter-/extra-polation
     intMethod = 'linear' #Options: "linear", "nearest", "slinear", "cubic", "quintic" and "pchip" 
-    expVal = 0.0 #Value for extrapolation (i.e. values outside volume domain)
+    # Air/background must remain dark for CT scans with negative intensities.
+    expVal = float(np.min(image_array))
 
-    # Set up interpolators for moving image in physical space
-    x = np.arange(start=0, stop=imgDim[0], step=1) * imgSpacing[0] + affine[0,3]
-    y = np.arange(start=0, stop=imgDim[1], step=1) * imgSpacing[1] + affine[1,3]
-    z = np.arange(start=0, stop=imgDim[2], step=1) * imgSpacing[2] + affine[2,3]
+    # Match the local frame used by PCA_resample_GUI and ptsQ_t below.
+    # Adding the world origin here shifts queries outside translated scans.
+    # World rotations/flips do not enter this voxel-axis coordinate system.
+    x = np.arange(start=0, stop=imgDim[0], step=1) * imgSpacing[0]
+    y = np.arange(start=0, stop=imgDim[1], step=1) * imgSpacing[1]
+    z = np.arange(start=0, stop=imgDim[2], step=1) * imgSpacing[2]
     F_moving = RegularGridInterpolator((x, y, z),
                                        image_array,
                                        method=intMethod,
