@@ -9,11 +9,11 @@ from graph_cut_funcs import *
 
 
 ########### FILL OUT ###########
-path = "C:\\Users\\chris\\Mit drev\\DTU\\0. Afsluttede kurser\\Bachelorprojekt\\DOG-ROOTS\\Canislupus_CZM_712_downsampled_x025.nii"  # Replace with your actual NifTi file path
-out_path = "./results/"  # Replace with your desired output path
+path = "C:/Users/chris/Mit drev/DTU/4. Endocasting/Data/human_segmented_masked.nii.gz"  # Replace with your actual NifTi file path
+out_path = "C:/Users/chris/Mit drev/DTU/4. Endocasting/Data/Subset_Skull_Volumes/processed/" # Replace with your desired output path
 num_iters = [10,5,3,2]
 step_sizes = [1,1,0.5,0.5]
-use_pca_resampling = False  # False: automatic center selection in the original volume.
+use_pca_resampling = True  # False: automatic center selection in the original volume.
 remesh = True  # Once per stage: after iterations 5, 3, 2, 1 for the setup above.
 ################################
 
